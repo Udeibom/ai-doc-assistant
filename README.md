@@ -168,8 +168,3 @@ ai-doc-assistant/
 - Rate limiting
 - Prompt versioning
 
----
-
-## Interview Summary
-
-“I designed a production-style RAG system with strict grounding, citation enforcement, and hallucination prevention for enterprise document intelligence.”
