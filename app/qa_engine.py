@@ -8,7 +8,7 @@ from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.settings import Settings
 
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.huggingface import HuggingFaceLLM
+from llama_index.llms.groq import Groq
 
 # -----------------------------
 # Logging
@@ -23,27 +23,26 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 VECTOR_STORE_DIR = BASE_DIR / "storage" / "vector_store"
 
 # -----------------------------
-# Embedding model (local, fast)
+# Embeddings (local)
 # -----------------------------
 Settings.embed_model = HuggingFaceEmbedding(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
 # -----------------------------
-# LLM (CPU-safe, no offloading)
+# LLM (remote via Groq)
 # -----------------------------
-Settings.llm = HuggingFaceLLM(
-    model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    tokenizer_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    max_new_tokens=128,
-    context_window=2048,
-    device_map="cpu",
+Settings.llm = Groq(
+    model="llama-3.1-8b-instant",
+    temperature=0.1,
+    max_tokens=256,
 )
+
 
 # -----------------------------
 # Query Engine Loader
 # -----------------------------
-def load_query_engine(top_k: int = 3):
+def load_query_engine(top_k: int = 2):
     logger.info("Loading vector index...")
 
     storage_context = StorageContext.from_defaults(
@@ -60,15 +59,18 @@ def load_query_engine(top_k: int = 3):
     return RetrieverQueryEngine(retriever=retriever)
 
 # -----------------------------
+# Load ONCE
+# -----------------------------
+QUERY_ENGINE = load_query_engine()
+
+# -----------------------------
 # QA Function
 # -----------------------------
 def answer_question(query: str) -> str:
-    engine = load_query_engine()
-
     print("⏳ Running query...")
     start = time.time()
 
-    response = engine.query(query)
+    response = QUERY_ENGINE.query(query)
 
     print(f"✅ Done in {time.time() - start:.2f}s")
     return str(response)
