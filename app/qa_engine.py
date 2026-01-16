@@ -6,9 +6,14 @@ from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.settings import Settings
+from llama_index.core.prompts import PromptTemplate
+from llama_index.core.response_synthesizers import get_response_synthesizer
 
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
+
+from prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+
 
 # -----------------------------
 # Logging
@@ -38,6 +43,17 @@ Settings.llm = Groq(
     max_tokens=256,
 )
 
+# -----------------------------
+# Prompt Templates
+# -----------------------------
+qa_prompt = PromptTemplate(
+    template=f"""{SYSTEM_PROMPT}
+
+{USER_PROMPT_TEMPLATE}
+""",
+    prompt_type="question_answering",
+)
+
 
 # -----------------------------
 # Query Engine Loader
@@ -56,7 +72,15 @@ def load_query_engine(top_k: int = 2):
         similarity_top_k=top_k,
     )
 
-    return RetrieverQueryEngine(retriever=retriever)
+    response_synthesizer = get_response_synthesizer(
+        response_mode="compact",
+        text_qa_template=qa_prompt,
+    )
+
+    return RetrieverQueryEngine(
+        retriever=retriever,
+        response_synthesizer=response_synthesizer,
+    )
 
 # -----------------------------
 # Load ONCE
@@ -79,7 +103,7 @@ def answer_question(query: str) -> str:
 # CLI Entry
 # -----------------------------
 if __name__ == "__main__":
-    question = "What is the termination clause in the contract?"
+    question = "What is the CEO’s favorite color?"
     print("\n📄 Question:", question)
     print("\n🧠 Answer:\n")
     print(answer_question(question))
