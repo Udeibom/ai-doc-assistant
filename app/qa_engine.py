@@ -1,6 +1,7 @@
 import logging
 import time
 from pathlib import Path
+from statistics import mean
 
 from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.retrievers import VectorIndexRetriever
@@ -9,7 +10,7 @@ from llama_index.core.settings import Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
 
-from prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from prompts import SYSTEM_PROMPT, QUERY_REWRITE_PROMPT
 
 
 # -----------------------------
@@ -25,14 +26,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 VECTOR_STORE_DIR = BASE_DIR / "storage" / "vector_store"
 
 # -----------------------------
-# Embeddings (local)
+# Embeddings
 # -----------------------------
 Settings.embed_model = HuggingFaceEmbedding(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
 # -----------------------------
-# LLM (remote via Groq)
+# LLM
 # -----------------------------
 Settings.llm = Groq(
     model="llama-3.1-8b-instant",
@@ -40,9 +41,8 @@ Settings.llm = Groq(
     max_tokens=256,
 )
 
-
 # -----------------------------
-# Query Engine Loader
+# Retriever Loader
 # -----------------------------
 def load_retriever(top_k: int = 2):
     logger.info("Loading vector index...")
@@ -58,13 +58,46 @@ def load_retriever(top_k: int = 2):
         similarity_top_k=top_k,
     )
 
-
-
 # -----------------------------
 # Load ONCE
 # -----------------------------
 RETRIEVER = load_retriever()
 
+# -----------------------------
+# Query Rewriting
+# -----------------------------
+def rewrite_query(question: str) -> str:
+    """
+    Rewrite query for better retrieval (NOT answering)
+    """
+    prompt = QUERY_REWRITE_PROMPT.format(question=question)
+    suggests = Settings.llm.complete(prompt).text.strip()
+
+    # Defensive fallback
+    if not suggests:
+        return question
+
+    return suggests
+
+# -----------------------------
+# Confidence computation
+# -----------------------------
+def compute_confidence(nodes, answer: str) -> float:
+    if not nodes:
+        return 0.0
+
+    if "[source:" not in answer:
+        return 0.0
+
+    scores = [n.score for n in nodes if n.score is not None]
+
+    if not scores:
+        return 0.0
+
+    avg_similarity = mean(scores)
+    avg_similarity = max(0.0, min(avg_similarity, 1.0))
+
+    return round(avg_similarity, 3)
 
 # -----------------------------
 # QA Function
@@ -73,10 +106,15 @@ def answer_question(query: str) -> str:
     print("⏳ Running query...")
     start = time.time()
 
-    nodes = RETRIEVER.retrieve(query)
+    # 🔹 Rewrite query for retrieval
+    rewritten_query = rewrite_query(query)
+    logger.info(f"Rewritten query: {rewritten_query}")
+
+    # 🔹 Retrieve with rewritten query
+    nodes = RETRIEVER.retrieve(rewritten_query)
 
     if not nodes:
-        return "I don’t know based on the provided documents."
+        return "I don’t know based on the provided documents.\n\nConfidence: 0.00"
 
     # 🔹 Build citation-aware context
     context_blocks = []
@@ -93,7 +131,7 @@ def answer_question(query: str) -> str:
 
     context = "\n\n".join(context_blocks)
 
-    # 🔹 Construct strict prompt
+    # 🔹 Answer using ORIGINAL query
     prompt = f"""{SYSTEM_PROMPT}
 
 Context (with sources):
@@ -105,17 +143,16 @@ Question:
 Answer (with citations):
 """
 
-    # 🔹 Call LLM directly
     answer = Settings.llm.complete(prompt).text.strip()
+
+    confidence = compute_confidence(nodes, answer)
 
     print(f"✅ Done in {time.time() - start:.2f}s")
 
-    # Hard citation guardrail
-    if "[source:" not in answer:
-        return "I don’t know based on the provided documents."
+    if confidence == 0.0:
+        return "I don’t know based on the provided documents.\n\nConfidence: 0.00"
 
-    return answer
-
+    return f"{answer}\n\nConfidence: {confidence:.2f}"
 
 # -----------------------------
 # CLI Entry

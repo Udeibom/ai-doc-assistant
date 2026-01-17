@@ -22,12 +22,22 @@ If you cannot cite a statement, you must not include it.
 """
 
 
-USER_PROMPT_TEMPLATE = """
-Context (with sources):
-{context}
+QUERY_REWRITE_PROMPT = """
+You are a query rewriting assistant for document retrieval.
 
-Question:
+TASK:
+Rewrite the user question to maximize retrieval from legal and contractual documents.
+
+RULES:
+- Preserve the original intent exactly
+- Use clear, explicit legal language
+- Expand vague references
+- Do NOT answer the question
+- Do NOT add new facts
+- Output ONLY the rewritten query
+
+Original question:
 {question}
 
-Answer (with citations):
+Rewritten query:
 """
