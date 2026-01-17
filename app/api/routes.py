@@ -18,17 +18,17 @@ class AnswerResponse(BaseModel):
 
 @router.post("/ask", response_model=AnswerResponse)
 @limiter.limit("10/minute")
-def ask_question(payload: QuestionRequest):
+def ask_question(request: Request, payload: QuestionRequest):
     if not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     answer = answer_question(payload.question)
-
     return {"answer": answer}
+
 
 @router.post("/ask/stream")
 @limiter.limit("5/minute")
-def ask_question_stream(payload: QuestionRequest):
+def ask_question_streaming(request: Request, payload: QuestionRequest):
     if not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
