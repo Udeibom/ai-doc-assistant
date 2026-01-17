@@ -163,6 +163,62 @@ Answer (with citations):
 
     return f"{answer}\n\nConfidence: {confidence:.2f}"
 
+
+def answer_question_stream(question: str):
+    """
+    Streams the answer token-by-token using SSE.
+    """
+    # 🔹 Rewrite query for retrieval
+    rewritten_query = rewrite_query(question)
+    logger.info(f"Rewritten query (stream): {rewritten_query}")
+
+    # 🔹 Retrieve
+    nodes = RETRIEVER.retrieve(rewritten_query)
+
+    if not nodes:
+        yield "data: I don’t know based on the provided documents.\n\n"
+        yield "event: end\ndata: [DONE]\n\n"
+        return
+
+    # 🔹 Build citation-aware context
+    context_blocks = []
+    for node in nodes:
+        meta = node.node.metadata
+        source = meta.get("source_file", "unknown")
+        page = meta.get("page_number", "unknown")
+
+        block = (
+            f"[source: {source}, page: {page}]\n"
+            f"{node.node.text.strip()}"
+        )
+        context_blocks.append(block)
+
+    context = "\n\n".join(context_blocks)
+
+    prompt = f"""{SYSTEM_PROMPT}
+
+Context (with sources):
+{context}
+
+Question:
+{question}
+
+Answer (with citations):
+"""
+
+    # 🔹 Stream from LLM
+    stream = Settings.llm.stream_complete(prompt)
+
+    for chunk in stream:
+        if chunk.delta:
+            yield f"data: {chunk.delta}\n\n"
+
+    # 🔹 Final metadata
+    confidence = compute_confidence(nodes, "")
+    yield f"event: metadata\ndata: Confidence: {confidence:.2f}\n\n"
+    yield "event: end\ndata: [DONE]\n\n"
+
+
 # -----------------------------
 # CLI Entry
 # -----------------------------
