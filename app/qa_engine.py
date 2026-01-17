@@ -3,11 +3,8 @@ import time
 from pathlib import Path
 
 from llama_index.core import StorageContext, load_index_from_storage
-from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.settings import Settings
-from llama_index.core.prompts import PromptTemplate
-from llama_index.core.response_synthesizers import get_response_synthesizer
 
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
@@ -43,22 +40,11 @@ Settings.llm = Groq(
     max_tokens=256,
 )
 
-# -----------------------------
-# Prompt Templates
-# -----------------------------
-qa_prompt = PromptTemplate(
-    template=f"""{SYSTEM_PROMPT}
-
-{USER_PROMPT_TEMPLATE}
-""",
-    prompt_type="question_answering",
-)
-
 
 # -----------------------------
 # Query Engine Loader
 # -----------------------------
-def load_query_engine(top_k: int = 2):
+def load_retriever(top_k: int = 2):
     logger.info("Loading vector index...")
 
     storage_context = StorageContext.from_defaults(
@@ -67,25 +53,18 @@ def load_query_engine(top_k: int = 2):
 
     index = load_index_from_storage(storage_context)
 
-    retriever = VectorIndexRetriever(
+    return VectorIndexRetriever(
         index=index,
         similarity_top_k=top_k,
     )
 
-    response_synthesizer = get_response_synthesizer(
-        response_mode="compact",
-        text_qa_template=qa_prompt,
-    )
 
-    return RetrieverQueryEngine(
-        retriever=retriever,
-        response_synthesizer=response_synthesizer,
-    )
 
 # -----------------------------
 # Load ONCE
 # -----------------------------
-QUERY_ENGINE = load_query_engine()
+RETRIEVER = load_retriever()
+
 
 # -----------------------------
 # QA Function
@@ -94,16 +73,55 @@ def answer_question(query: str) -> str:
     print("⏳ Running query...")
     start = time.time()
 
-    response = QUERY_ENGINE.query(query)
+    nodes = RETRIEVER.retrieve(query)
+
+    if not nodes:
+        return "I don’t know based on the provided documents."
+
+    # 🔹 Build citation-aware context
+    context_blocks = []
+    for node in nodes:
+        meta = node.node.metadata
+        source = meta.get("source_file", "unknown")
+        page = meta.get("page_number", "unknown")
+
+        block = (
+            f"[source: {source}, page: {page}]\n"
+            f"{node.node.text.strip()}"
+        )
+        context_blocks.append(block)
+
+    context = "\n\n".join(context_blocks)
+
+    # 🔹 Construct strict prompt
+    prompt = f"""{SYSTEM_PROMPT}
+
+Context (with sources):
+{context}
+
+Question:
+{query}
+
+Answer (with citations):
+"""
+
+    # 🔹 Call LLM directly
+    answer = Settings.llm.complete(prompt).text.strip()
 
     print(f"✅ Done in {time.time() - start:.2f}s")
-    return str(response)
+
+    # Hard citation guardrail
+    if "[source:" not in answer:
+        return "I don’t know based on the provided documents."
+
+    return answer
+
 
 # -----------------------------
 # CLI Entry
 # -----------------------------
 if __name__ == "__main__":
-    question = "What is the CEO’s favorite color?"
+    question = "What notice period is required before changes to the General Terms take effect?"
     print("\n📄 Question:", question)
     print("\n🧠 Answer:\n")
     print(answer_question(question))
