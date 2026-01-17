@@ -16,11 +16,25 @@ class AnswerResponse(BaseModel):
     answer: str
 
 
+# Guardrails
+MAX_QUESTION_LENGTH = 500
+
+
+def validate_question(question: str):
+    if not question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+
+    if len(question) > MAX_QUESTION_LENGTH:
+        raise HTTPException(
+            status_code=413,
+            detail="Question too long"
+        )
+
+
 @router.post("/ask", response_model=AnswerResponse)
 @limiter.limit("10/minute")
 def ask_question(request: Request, payload: QuestionRequest):
-    if not payload.question.strip():
-        raise HTTPException(status_code=400, detail="Question cannot be empty")
+    validate_question(payload.question)
 
     answer = answer_question(payload.question)
     return {"answer": answer}
@@ -29,8 +43,7 @@ def ask_question(request: Request, payload: QuestionRequest):
 @router.post("/ask/stream")
 @limiter.limit("5/minute")
 def ask_question_streaming(request: Request, payload: QuestionRequest):
-    if not payload.question.strip():
-        raise HTTPException(status_code=400, detail="Question cannot be empty")
+    validate_question(payload.question)
 
     return StreamingResponse(
         answer_question_stream(payload.question),
