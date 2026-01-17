@@ -10,7 +10,8 @@ from llama_index.core.settings import Settings
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
 
-from prompts import SYSTEM_PROMPT, QUERY_REWRITE_PROMPT
+from app.prompts import SYSTEM_PROMPT, QUERY_REWRITE_PROMPT
+
 
 
 # -----------------------------
@@ -22,8 +23,9 @@ logger = logging.getLogger(__name__)
 # -----------------------------
 # Paths
 # -----------------------------
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parents[2]
 VECTOR_STORE_DIR = BASE_DIR / "storage" / "vector_store"
+
 
 # -----------------------------
 # Embeddings
@@ -52,6 +54,13 @@ def load_retriever(top_k: int = 2):
     )
 
     index = load_index_from_storage(storage_context)
+
+    if not VECTOR_STORE_DIR.exists():
+        raise RuntimeError(
+            f"Vector store not found at {VECTOR_STORE_DIR}. "
+            "Ensure the index is built before starting the API."
+        )
+
 
     return VectorIndexRetriever(
         index=index,
