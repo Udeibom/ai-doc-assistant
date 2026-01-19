@@ -1,61 +1,99 @@
 import logging
+import os
 import time
 from pathlib import Path
 from statistics import mean
+from threading import Lock
 
 from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.settings import Settings
-
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
 
 from app.prompts import SYSTEM_PROMPT, QUERY_REWRITE_PROMPT
 
 
+# ===============================
 # Logging
+# ===============================
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# ===============================
 # Paths
+# ===============================
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 VECTOR_STORE_DIR = BASE_DIR / "storage" / "vector_store"
 
 
+# ===============================
 # Guardrail Constants
+# ===============================
 
 MIN_SIMILARITY = 0.35
 MIN_CONFIDENCE = 0.30
 
 
-# Embeddings
+# ===============================
+# Lazy Model Initialization
+# ===============================
 
-Settings.embed_model = HuggingFaceEmbedding(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
-
-
-# LLM
-
-Settings.llm = Groq(
-    model="llama-3.1-8b-instant",
-    temperature=0.1,
-    max_tokens=256,
-)
+_EMBED_MODEL = None
+_LLM = None
+_MODEL_LOCK = Lock()
 
 
+def init_models():
+    """
+    Lazily initialize embedding + LLM models.
+    Safe for CPU-only environments (Render).
+    """
+    global _EMBED_MODEL, _LLM
+
+    if _EMBED_MODEL and _LLM:
+        return
+
+    with _MODEL_LOCK:
+        if _EMBED_MODEL is None:
+            logger.info("🔧 Initializing embedding model (CPU)...")
+            _EMBED_MODEL = HuggingFaceEmbedding(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                device="cpu",
+            )
+            Settings.embed_model = _EMBED_MODEL
+
+        if _LLM is None:
+            logger.info("🔧 Initializing Groq LLM...")
+            _LLM = Groq(
+                model="llama-3.1-8b-instant",
+                temperature=0.1,
+                max_tokens=256,
+                api_key=os.environ.get("GROQ_API_KEY"),
+            )
+            Settings.llm = _LLM
+
+
+# ===============================
 # Retriever Loader
+# ===============================
+
+_RETRIEVER = None
+_RETRIEVER_LOCK = Lock()
+
 
 def load_retriever(top_k: int = 2):
-    logger.info("Loading vector index...")
+    logger.info("📦 Loading vector index...")
 
     if not VECTOR_STORE_DIR.exists():
-        raise RuntimeError(
-            f"Vector store not found at {VECTOR_STORE_DIR}. "
-            "Ensure the index is built before starting the API."
+        logger.warning(
+            f"⚠️ Vector store not found at {VECTOR_STORE_DIR}. "
+            "Retrieval will be unavailable."
         )
+        return None
 
     storage_context = StorageContext.from_defaults(
         persist_dir=VECTOR_STORE_DIR
@@ -69,28 +107,44 @@ def load_retriever(top_k: int = 2):
     )
 
 
-# Load ONCE
+def get_retriever():
+    global _RETRIEVER
 
-RETRIEVER = load_retriever()
+    if _RETRIEVER is None:
+        with _RETRIEVER_LOCK:
+            if _RETRIEVER is None:
+                _RETRIEVER = load_retriever()
+
+    return _RETRIEVER
 
 
+def reload_retriever():
+    global _RETRIEVER
+
+    with _RETRIEVER_LOCK:
+        logger.info("🔄 Reloading vector retriever...")
+        _RETRIEVER = load_retriever()
+
+
+# ===============================
 # Query Rewriting
+# ===============================
 
 def rewrite_query(question: str) -> str:
-    """
-    Rewrite query for better retrieval (NOT answering)
-    """
+    init_models()
+
     prompt = QUERY_REWRITE_PROMPT.format(question=question)
     rewritten = Settings.llm.complete(prompt).text.strip()
 
-    # Guardrail: prevent verbose or hijacked rewrites
     if not rewritten or len(rewritten) > 200:
         return question
 
     return rewritten
 
 
+# ===============================
 # Context Builder
+# ===============================
 
 def build_context(nodes) -> str:
     context_blocks = []
@@ -109,17 +163,15 @@ def build_context(nodes) -> str:
     return "\n\n".join(context_blocks)
 
 
-# Confidence computation
+# ===============================
+# Confidence Computation
+# ===============================
 
 def compute_confidence(nodes, answer: str) -> float:
     if not nodes:
         return 0.0
 
-    if "[source:" not in answer:
-        return 0.0
-
     scores = [n.score for n in nodes if n.score is not None]
-
     if not scores:
         return 0.0
 
@@ -129,20 +181,23 @@ def compute_confidence(nodes, answer: str) -> float:
     return round(avg_similarity, 3)
 
 
-# QA Function (Non-streaming)
+# ===============================
+# QA Function (Non-Streaming)
+# ===============================
 
 def answer_question(query: str) -> str:
-    print("⏳ Running query...")
+    init_models()
     start = time.time()
 
-    # 🔹 Rewrite query
     rewritten_query = rewrite_query(query)
-    logger.info(f"Rewritten query: {rewritten_query}")
+    logger.info(f"🔍 Rewritten query: {rewritten_query}")
 
-    # 🔹 Retrieve
-    nodes = RETRIEVER.retrieve(rewritten_query)
+    retriever = get_retriever()
+    if retriever is None:
+        return "Knowledge base not initialized yet.\n\nConfidence: 0.00"
 
-    #similarity threshold
+    nodes = retriever.retrieve(rewritten_query)
+
     strong_nodes = [
         n for n in nodes
         if n.score is not None and n.score >= MIN_SIMILARITY
@@ -151,10 +206,8 @@ def answer_question(query: str) -> str:
     if not strong_nodes:
         return "I don’t know based on the provided documents.\n\nConfidence: 0.00"
 
-    # 🔹 Build locked context
     context = build_context(strong_nodes)
 
-    # 🔹 Answer using ORIGINAL query
     prompt = f"""{SYSTEM_PROMPT}
 
 Context (with sources):
@@ -168,33 +221,36 @@ Answer (with citations):
 
     answer = Settings.llm.complete(prompt).text.strip()
 
-    #citation enforcement
     if "[source:" not in answer:
         return "I don’t know based on the provided documents.\n\nConfidence: 0.00"
 
     confidence = compute_confidence(strong_nodes, answer)
 
-    #confidence gate
     if confidence < MIN_CONFIDENCE:
         return "I don’t know based on the provided documents.\n\nConfidence: 0.00"
 
-    print(f"✅ Done in {time.time() - start:.2f}s")
+    logger.info(f"✅ Completed in {time.time() - start:.2f}s")
 
     return f"{answer}\n\nConfidence: {confidence:.2f}"
 
 
+# ===============================
 # QA Function (Streaming)
+# ===============================
 
 def answer_question_stream(question: str):
-    """
-    Streams the answer token-by-token using SSE.
-    """
+    init_models()
 
-    #pre-check before streaming
     rewritten = rewrite_query(question)
-    logger.info(f"Rewritten query (stream): {rewritten}")
+    logger.info(f"🔍 Rewritten query (stream): {rewritten}")
 
-    nodes = RETRIEVER.retrieve(rewritten)
+    retriever = get_retriever()
+    if retriever is None:
+        yield "data: Knowledge base not initialized yet.\n\n"
+        yield "event: end\ndata: [DONE]\n\n"
+        return
+
+    nodes = retriever.retrieve(rewritten)
 
     strong_nodes = [
         n for n in nodes
@@ -206,7 +262,6 @@ def answer_question_stream(question: str):
         yield "event: end\ndata: [DONE]\n\n"
         return
 
-    #lock context BEFORE streaming
     context = build_context(strong_nodes)
 
     prompt = f"""{SYSTEM_PROMPT}
@@ -229,12 +284,3 @@ Answer (with citations):
     confidence = compute_confidence(strong_nodes, "")
     yield f"event: metadata\ndata: Confidence: {confidence:.2f}\n\n"
     yield "event: end\ndata: [DONE]\n\n"
-
-
-# CLI Entry
-
-if __name__ == "__main__":
-    question = "What notice period is required before changes to the General Terms take effect?"
-    print("\n📄 Question:", question)
-    print("\n🧠 Answer:\n")
-    print(answer_question(question))
