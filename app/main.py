@@ -1,24 +1,43 @@
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi import _rate_limit_exceeded_handler
 
 from app.api.routes import router
 from app.core.rate_limiter import limiter
-from fastapi.responses import HTMLResponse
+
 
 app = FastAPI(
     title="Enterprise Document QA API",
-    version="1.0.0"
+    version="1.0.0",
 )
 
-#Rate limiting
+# ---------------------------
+# Rate limiting
+# ---------------------------
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# ---------------------------
+# Routes
+# ---------------------------
 app.include_router(router)
 
+
+# ---------------------------
+# Startup check (Render debug)
+# ---------------------------
+@app.on_event("startup")
+def startup():
+    print("✅ FastAPI startup complete — port is now open")
+
+
+# ---------------------------
+# Home page (simple UI)
+# ---------------------------
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
