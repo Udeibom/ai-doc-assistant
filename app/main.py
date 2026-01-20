@@ -42,77 +42,167 @@ def startup():
 def home():
     return """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Ask My AI</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
-            max-width: 700px;
-            margin: 40px auto;
-            padding: 20px;
-        }
-        h1 {
-            text-align: center;
-        }
-        textarea {
-            width: 100%;
-            height: 90px;
-            font-size: 16px;
-            padding: 10px;
-            border-radius: 6px;
-            border: 1px solid #ccc;
-        }
-        button {
-            margin-top: 10px;
-            padding: 10px 24px;
-            font-size: 16px;
-            border-radius: 6px;
-            border: none;
-            background: #4f46e5;
-            color: white;
-            cursor: pointer;
-        }
-        button:disabled {
-            background: #999;
-        }
-        #answer {
-            margin-top: 20px;
-            white-space: pre-wrap;
-            background: white;
-            padding: 16px;
-            border-radius: 6px;
-            min-height: 120px;
-        }
-        .confidence {
-            margin-top: 10px;
-            font-size: 14px;
-            color: #555;
-        }
-    </style>
+<meta charset="UTF-8" />
+<title>Ask My AI</title>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        background: linear-gradient(135deg, #eef2ff, #f8fafc);
+        max-width: 780px;
+        margin: 40px auto;
+        padding: 20px;
+        color: #111827;
+    }
+
+    h1 {
+        text-align: center;
+        margin-bottom: 6px;
+    }
+
+    .subtitle {
+        text-align: center;
+        color: #6b7280;
+        margin-bottom: 24px;
+    }
+
+    .card {
+        background: white;
+        border-radius: 14px;
+        padding: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    }
+
+    textarea {
+        width: 100%;
+        min-height: 90px;
+        font-size: 16px;
+        padding: 14px;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+        resize: vertical;
+        outline: none;
+    }
+
+    textarea:focus {
+        border-color: #6366f1;
+        box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+    }
+
+    .actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 12px;
+    }
+
+    button {
+        padding: 10px 22px;
+        font-size: 16px;
+        border-radius: 10px;
+        border: none;
+        background: #4f46e5;
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    button:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+    }
+
+    .chat {
+        margin-top: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .bubble {
+        max-width: 85%;
+        padding: 14px 16px;
+        border-radius: 14px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+    }
+
+    .user {
+        align-self: flex-end;
+        background: #4f46e5;
+        color: white;
+        border-bottom-right-radius: 4px;
+    }
+
+    .ai {
+        align-self: flex-start;
+        background: #f3f4f6;
+        color: #111827;
+        border-bottom-left-radius: 4px;
+    }
+
+    .confidence {
+        margin-top: 6px;
+        font-size: 14px;
+        color: #6b7280;
+    }
+
+    .cursor {
+        animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+        0% { opacity: 1; }
+        50% { opacity: 0; }
+        100% { opacity: 1; }
+    }
+</style>
 </head>
+
 <body>
-    <h1>Ask My AI 📄🤖</h1>
 
+<h1>Ask My AI 🤖</h1>
+<div class="subtitle">Ask questions about your documents in real time</div>
+
+<div class="card">
     <textarea id="question" placeholder="Ask a question about the document..."></textarea>
-    <br>
-    <button id="askBtn" onclick="ask()">Ask</button>
 
-    <div id="answer"></div>
-    <div id="confidence" class="confidence"></div>
+    <div class="actions">
+        <button id="askBtn" onclick="ask()">Ask</button>
+    </div>
+</div>
+
+<div id="chat" class="chat"></div>
 
 <script>
 function ask() {
-    const question = document.getElementById("question").value.trim();
+    const questionInput = document.getElementById("question");
+    const question = questionInput.value.trim();
     if (!question) return;
 
-    const answerDiv = document.getElementById("answer");
-    const confidenceDiv = document.getElementById("confidence");
+    const chat = document.getElementById("chat");
     const button = document.getElementById("askBtn");
 
-    answerDiv.textContent = "";
-    confidenceDiv.textContent = "";
+    // User bubble
+    const userBubble = document.createElement("div");
+    userBubble.className = "bubble user";
+    userBubble.textContent = question;
+    chat.appendChild(userBubble);
+
+    // AI bubble
+    const aiBubble = document.createElement("div");
+    aiBubble.className = "bubble ai";
+    aiBubble.innerHTML = '<span class="cursor">▍</span>';
+    chat.appendChild(aiBubble);
+
+    questionInput.value = "";
     button.disabled = true;
 
     fetch("/ask/stream", {
@@ -129,6 +219,7 @@ function ask() {
         function read() {
             reader.read().then(({ done, value }) => {
                 if (done) {
+                    aiBubble.innerHTML = aiBubble.textContent;
                     button.disabled = false;
                     return;
                 }
@@ -138,10 +229,8 @@ function ask() {
 
                 lines.forEach(line => {
                     if (line.startsWith("data: ")) {
-                        answerDiv.textContent += line.replace("data: ", "");
-                    }
-                    if (line.startsWith("event: metadata")) {
-                        confidenceDiv.textContent = line.replace("event: metadata\\ndata: ", "");
+                        aiBubble.textContent += line.replace("data: ", "");
+                        aiBubble.innerHTML = aiBubble.textContent + '<span class="cursor">▍</span>';
                     }
                 });
 
@@ -151,110 +240,9 @@ function ask() {
 
         read();
     }).catch(() => {
-        answerDiv.textContent = "❌ Error occurred.";
+        aiBubble.textContent = "❌ Error occurred.";
         button.disabled = false;
     });
-}
-</script>
-</body>
-</html>
-"""
-
-
-# ---------------------------
-# Admin page (Document Upload)
-# ---------------------------
-@app.get("/admin", response_class=HTMLResponse)
-def admin_page():
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Admin – Upload Document</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
-            max-width: 700px;
-            margin: 40px auto;
-            padding: 20px;
-        }
-        h1 {
-            text-align: center;
-        }
-        textarea, input {
-            width: 100%;
-            font-size: 16px;
-            padding: 10px;
-            margin-top: 10px;
-            border-radius: 6px;
-            border: 1px solid #ccc;
-        }
-        textarea {
-            height: 180px;
-        }
-        button {
-            margin-top: 15px;
-            padding: 10px 24px;
-            font-size: 16px;
-            border-radius: 6px;
-            border: none;
-            background: #16a34a;
-            color: white;
-            cursor: pointer;
-        }
-        #status {
-            margin-top: 20px;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-
-<h1>Admin Document Upload 📄</h1>
-
-<input id="source" placeholder="Source file name (e.g. contract_v2.pdf)" />
-<textarea id="text" placeholder="Paste document text here..."></textarea>
-
-<button onclick="upload()">Upload Document</button>
-
-<div id="status"></div>
-
-<script>
-async function upload() {
-    const text = document.getElementById("text").value.trim();
-    const source_file = document.getElementById("source").value.trim();
-    const status = document.getElementById("status");
-
-    if (!text || !source_file) {
-        status.textContent = "❌ Please fill in all fields.";
-        return;
-    }
-
-    status.textContent = "Uploading...";
-
-    try {
-        const response = await fetch("/admin/ingest", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-API-Key": "admin-key-123"
-            },
-            body: JSON.stringify({ text, source_file })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            status.textContent = "❌ " + (data.detail || "Upload failed");
-        } else {
-            status.textContent = "✅ Document uploaded successfully!";
-            document.getElementById("text").value = "";
-            document.getElementById("source").value = "";
-        }
-    } catch (err) {
-        status.textContent = "❌ Network error.";
-    }
 }
 </script>
 
