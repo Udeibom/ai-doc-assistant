@@ -115,10 +115,6 @@ function ask() {
     confidenceDiv.textContent = "";
     button.disabled = true;
 
-    const eventSource = new EventSource("/ask/stream?dummy=1", {
-        withCredentials: false
-    });
-
     fetch("/ask/stream", {
         method: "POST",
         headers: {
@@ -160,6 +156,108 @@ function ask() {
     });
 }
 </script>
+</body>
+</html>
+"""
+
+
+# ---------------------------
+# Admin page (Document Upload)
+# ---------------------------
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin – Upload Document</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            max-width: 700px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        textarea, input {
+            width: 100%;
+            font-size: 16px;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+        }
+        textarea {
+            height: 180px;
+        }
+        button {
+            margin-top: 15px;
+            padding: 10px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            border: none;
+            background: #16a34a;
+            color: white;
+            cursor: pointer;
+        }
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Admin Document Upload 📄</h1>
+
+<input id="source" placeholder="Source file name (e.g. contract_v2.pdf)" />
+<textarea id="text" placeholder="Paste document text here..."></textarea>
+
+<button onclick="upload()">Upload Document</button>
+
+<div id="status"></div>
+
+<script>
+async function upload() {
+    const text = document.getElementById("text").value.trim();
+    const source_file = document.getElementById("source").value.trim();
+    const status = document.getElementById("status");
+
+    if (!text || !source_file) {
+        status.textContent = "❌ Please fill in all fields.";
+        return;
+    }
+
+    status.textContent = "Uploading...";
+
+    try {
+        const response = await fetch("/admin/ingest", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-API-Key": "admin-key-123"
+            },
+            body: JSON.stringify({ text, source_file })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            status.textContent = "❌ " + (data.detail || "Upload failed");
+        } else {
+            status.textContent = "✅ Document uploaded successfully!";
+            document.getElementById("text").value = "";
+            document.getElementById("source").value = "";
+        }
+    } catch (err) {
+        status.textContent = "❌ Network error.";
+    }
+}
+</script>
+
 </body>
 </html>
 """
