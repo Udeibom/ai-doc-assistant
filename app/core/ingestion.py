@@ -1,10 +1,15 @@
+from pathlib import Path
+
 from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.core.schema import Document
 from llama_index.core.settings import Settings
-from pathlib import Path
+
+from app.core.qa_engine import reload_retriever
+
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 VECTOR_STORE_DIR = BASE_DIR / "storage" / "vector_store"
+
 
 def ingest_text(text: str, source_file: str):
     document = Document(
@@ -23,3 +28,6 @@ def ingest_text(text: str, source_file: str):
     )
 
     index.storage_context.persist()
+
+    # Reload retriever so new docs are live
+    reload_retriever()
