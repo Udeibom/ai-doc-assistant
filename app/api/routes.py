@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
+from typing import Optional
 
 from app.core.rate_limiter import limiter
 from app.core.security import (
@@ -8,15 +9,12 @@ from app.core.security import (
     require_user_or_admin,
     require_admin,
 )
-from app.core.ingestion import ingest_text
-
 
 router = APIRouter()
 
-
-# ---------------------------
+# ==========================
 # Request / Response Models
-# ---------------------------
+# ==========================
 
 class QuestionRequest(BaseModel):
     question: str
@@ -31,9 +29,9 @@ class IngestRequest(BaseModel):
     source_file: str
 
 
-# ---------------------------
+# ==========================
 # Guardrails
-# ---------------------------
+# ==========================
 
 MAX_QUESTION_LENGTH = 500
 
@@ -49,14 +47,23 @@ def validate_question(question: str):
         )
 
 
-# ---------------------------
+# ==========================
+# Health / Readiness
+# ==========================
+
+@router.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+# ==========================
 # Query Endpoints (User + Admin)
-# ---------------------------
+# ==========================
 
 @router.post("/ask", response_model=AnswerResponse)
 @limiter.limit("10/minute")
 def ask_question(request: Request, payload: QuestionRequest):
-    # 🔑 Lazy import (prevents Render startup crash)
+    # Lazy import to prevent startup blocking
     from app.core.qa_engine import answer_question
 
     role = get_role_from_request(request)
@@ -71,7 +78,7 @@ def ask_question(request: Request, payload: QuestionRequest):
 @router.post("/ask/stream")
 @limiter.limit("5/minute")
 def ask_question_stream(request: Request, payload: QuestionRequest):
-    # 🔑 Lazy import (prevents Render startup crash)
+    # Lazy import
     from app.core.qa_engine import answer_question_stream
 
     role = get_role_from_request(request)
@@ -85,12 +92,14 @@ def ask_question_stream(request: Request, payload: QuestionRequest):
     )
 
 
-# ---------------------------
+# ==========================
 # Admin-Only Ingestion
-# ---------------------------
+# ==========================
 
 @router.post("/admin/ingest")
 def ingest_document(request: Request, payload: IngestRequest):
+    from app.core.ingestion import ingest_text
+
     role = get_role_from_request(request)
     require_admin(role)
 
@@ -100,3 +109,22 @@ def ingest_document(request: Request, payload: IngestRequest):
     )
 
     return {"status": "Document ingested successfully"}
+
+
+# ==========================
+# Admin Warmup Endpoint
+# ==========================
+
+@router.post("/admin/warmup")
+def warmup_models(request: Request):
+    """
+    Trigger lazy model loading without blocking startup.
+    Useful after deployment to warm up LLM + embeddings.
+    """
+    from app.core.model_manager import get_models
+
+    role = get_role_from_request(request)
+    require_admin(role)
+
+    get_models()
+    return {"status": "models warmed"}

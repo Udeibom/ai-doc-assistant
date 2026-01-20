@@ -1,18 +1,15 @@
 import logging
-import os
 import time
 from pathlib import Path
 from statistics import mean
 from threading import Lock
+from typing import Generator, Optional
 
 from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.retrievers import VectorIndexRetriever
-from llama_index.core.settings import Settings
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.groq import Groq
 
 from app.prompts import SYSTEM_PROMPT, QUERY_REWRITE_PROMPT
-
+from app.core.model_manager import get_models
 
 # ===============================
 # Logging
@@ -21,7 +18,6 @@ from app.prompts import SYSTEM_PROMPT, QUERY_REWRITE_PROMPT
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 # ===============================
 # Paths
 # ===============================
@@ -29,69 +25,28 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parents[2]
 VECTOR_STORE_DIR = BASE_DIR / "storage" / "vector_store"
 
-
 # ===============================
-# Guardrail Constants
+# Guardrails
 # ===============================
 
 MIN_SIMILARITY = 0.35
 MIN_CONFIDENCE = 0.30
 
-
 # ===============================
-# Lazy Model Initialization
-# ===============================
-
-_EMBED_MODEL = None
-_LLM = None
-_MODEL_LOCK = Lock()
-
-
-def init_models():
-    """
-    Lazily initialize embedding + LLM models.
-    Safe for CPU-only environments (Render).
-    """
-    global _EMBED_MODEL, _LLM
-
-    if _EMBED_MODEL and _LLM:
-        return
-
-    with _MODEL_LOCK:
-        if _EMBED_MODEL is None:
-            logger.info("🔧 Initializing embedding model (CPU)...")
-            _EMBED_MODEL = HuggingFaceEmbedding(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                device="cpu",
-            )
-            Settings.embed_model = _EMBED_MODEL
-
-        if _LLM is None:
-            logger.info("🔧 Initializing Groq LLM...")
-            _LLM = Groq(
-                model="llama-3.1-8b-instant",
-                temperature=0.1,
-                max_tokens=256,
-                api_key=os.environ.get("GROQ_API_KEY"),
-            )
-            Settings.llm = _LLM
-
-
-# ===============================
-# Retriever Loader
+# Retriever (Lazy + Thread-safe)
 # ===============================
 
-_RETRIEVER = None
+_RETRIEVER: Optional[VectorIndexRetriever] = None
 _RETRIEVER_LOCK = Lock()
 
 
-def load_retriever(top_k: int = 2):
-    logger.info("📦 Loading vector index...")
+def _load_retriever(top_k: int = 2) -> Optional[VectorIndexRetriever]:
+    logger.info("📦 Loading vector index (lazy)...")
 
     if not VECTOR_STORE_DIR.exists():
         logger.warning(
             f"⚠️ Vector store not found at {VECTOR_STORE_DIR}. "
-            "Retrieval will be unavailable."
+            "Retrieval unavailable."
         )
         return None
 
@@ -107,23 +62,24 @@ def load_retriever(top_k: int = 2):
     )
 
 
-def get_retriever():
+def get_retriever() -> Optional[VectorIndexRetriever]:
     global _RETRIEVER
 
-    if _RETRIEVER is None:
-        with _RETRIEVER_LOCK:
-            if _RETRIEVER is None:
-                _RETRIEVER = load_retriever()
+    if _RETRIEVER is not None:
+        return _RETRIEVER
+
+    with _RETRIEVER_LOCK:
+        if _RETRIEVER is None:
+            _RETRIEVER = _load_retriever()
 
     return _RETRIEVER
 
 
 def reload_retriever():
     global _RETRIEVER
-
     with _RETRIEVER_LOCK:
-        logger.info("🔄 Reloading vector retriever...")
-        _RETRIEVER = load_retriever()
+        logger.info("🔄 Reloading vector retriever")
+        _RETRIEVER = _load_retriever()
 
 
 # ===============================
@@ -131,10 +87,10 @@ def reload_retriever():
 # ===============================
 
 def rewrite_query(question: str) -> str:
-    init_models()
+    _, llm = get_models()
 
     prompt = QUERY_REWRITE_PROMPT.format(question=question)
-    rewritten = Settings.llm.complete(prompt).text.strip()
+    rewritten = llm.complete(prompt).text.strip()
 
     if not rewritten or len(rewritten) > 200:
         return question
@@ -147,27 +103,26 @@ def rewrite_query(question: str) -> str:
 # ===============================
 
 def build_context(nodes) -> str:
-    context_blocks = []
+    blocks = []
 
     for node in nodes:
-        meta = node.node.metadata
+        meta = node.node.metadata or {}
         source = meta.get("source_file", "unknown")
         page = meta.get("page_number", "unknown")
 
-        block = (
+        blocks.append(
             f"[source: {source}, page: {page}]\n"
             f"{node.node.text.strip()}"
         )
-        context_blocks.append(block)
 
-    return "\n\n".join(context_blocks)
+    return "\n\n".join(blocks)
 
 
 # ===============================
 # Confidence Computation
 # ===============================
 
-def compute_confidence(nodes, answer: str) -> float:
+def compute_confidence(nodes) -> float:
     if not nodes:
         return 0.0
 
@@ -175,28 +130,30 @@ def compute_confidence(nodes, answer: str) -> float:
     if not scores:
         return 0.0
 
-    avg_similarity = mean(scores)
-    avg_similarity = max(0.0, min(avg_similarity, 1.0))
+    avg = mean(scores)
+    avg = max(0.0, min(avg, 1.0))
 
-    return round(avg_similarity, 3)
+    return round(avg, 3)
 
 
 # ===============================
-# QA Function (Non-Streaming)
+# QA — Non-Streaming
 # ===============================
 
-def answer_question(query: str) -> str:
-    init_models()
+def answer_question(question: str) -> str:
     start = time.time()
 
-    rewritten_query = rewrite_query(query)
-    logger.info(f"🔍 Rewritten query: {rewritten_query}")
+    # Lazy model load (safe)
+    _, llm = get_models()
+
+    rewritten = rewrite_query(question)
+    logger.info(f"🔍 Rewritten query: {rewritten}")
 
     retriever = get_retriever()
     if retriever is None:
         return "Knowledge base not initialized yet.\n\nConfidence: 0.00"
 
-    nodes = retriever.retrieve(rewritten_query)
+    nodes = retriever.retrieve(rewritten)
 
     strong_nodes = [
         n for n in nodes
@@ -214,17 +171,17 @@ Context (with sources):
 {context}
 
 Question:
-{query}
+{question}
 
 Answer (with citations):
 """
 
-    answer = Settings.llm.complete(prompt).text.strip()
+    answer = llm.complete(prompt).text.strip()
 
     if "[source:" not in answer:
         return "I don’t know based on the provided documents.\n\nConfidence: 0.00"
 
-    confidence = compute_confidence(strong_nodes, answer)
+    confidence = compute_confidence(strong_nodes)
 
     if confidence < MIN_CONFIDENCE:
         return "I don’t know based on the provided documents.\n\nConfidence: 0.00"
@@ -235,11 +192,11 @@ Answer (with citations):
 
 
 # ===============================
-# QA Function (Streaming)
+# QA — Streaming (SSE)
 # ===============================
 
-def answer_question_stream(question: str):
-    init_models()
+def answer_question_stream(question: str) -> Generator[str, None, None]:
+    _, llm = get_models()
 
     rewritten = rewrite_query(question)
     logger.info(f"🔍 Rewritten query (stream): {rewritten}")
@@ -275,12 +232,12 @@ Question:
 Answer (with citations):
 """
 
-    stream = Settings.llm.stream_complete(prompt)
+    stream = llm.stream_complete(prompt)
 
     for chunk in stream:
         if chunk.delta:
             yield f"data: {chunk.delta}\n\n"
 
-    confidence = compute_confidence(strong_nodes, "")
+    confidence = compute_confidence(strong_nodes)
     yield f"event: metadata\ndata: Confidence: {confidence:.2f}\n\n"
     yield "event: end\ndata: [DONE]\n\n"
