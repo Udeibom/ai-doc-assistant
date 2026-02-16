@@ -120,11 +120,21 @@ def warmup_models(request: Request):
     """
     Trigger lazy model loading without blocking startup.
     Useful after deployment to warm up LLM + embeddings.
+    Always returns JSON even if warmup fails.
     """
     from app.core.model_manager import get_models
 
     role = get_role_from_request(request)
     require_admin(role)
 
-    get_models()
-    return {"status": "models warmed"}
+    try:
+        get_models()
+        return {"status": "models warmed"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "warmup failed",
+                "detail": str(e),
+            },
+        )

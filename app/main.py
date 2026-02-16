@@ -148,12 +148,6 @@ def home():
         border-bottom-left-radius: 4px;
     }
 
-    .confidence {
-        margin-top: 6px;
-        font-size: 14px;
-        color: #6b7280;
-    }
-
     .cursor {
         animation: blink 1s infinite;
     }
@@ -190,13 +184,11 @@ function ask() {
     const chat = document.getElementById("chat");
     const button = document.getElementById("askBtn");
 
-    // User bubble
     const userBubble = document.createElement("div");
     userBubble.className = "bubble user";
     userBubble.textContent = question;
     chat.appendChild(userBubble);
 
-    // AI bubble
     const aiBubble = document.createElement("div");
     aiBubble.className = "bubble ai";
     aiBubble.innerHTML = '<span class="cursor">▍</span>';
@@ -243,6 +235,93 @@ function ask() {
         aiBubble.textContent = "❌ Error occurred.";
         button.disabled = false;
     });
+}
+</script>
+
+</body>
+</html>
+"""
+
+
+# ---------------------------
+# Admin page
+# ---------------------------
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Admin Panel</title>
+<style>
+body {
+    font-family: Arial, sans-serif;
+    max-width: 720px;
+    margin: 40px auto;
+}
+textarea {
+    width: 100%;
+    height: 160px;
+    margin-bottom: 10px;
+}
+button {
+    padding: 10px 16px;
+    margin-right: 10px;
+}
+.status {
+    margin-top: 12px;
+    color: #374151;
+}
+</style>
+</head>
+<body>
+
+<h2>Admin Panel</h2>
+
+<h3>Upload Document</h3>
+<textarea id="docText" placeholder="Paste document text here..."></textarea><br>
+<input id="source" placeholder="source file name" /><br><br>
+<button onclick="upload()">Upload</button>
+
+<h3>Warm Models</h3>
+<button onclick="warm()">Warmup Models</button>
+
+<div class="status" id="status"></div>
+
+<script>
+const ADMIN_KEY = "admin-key-123";
+
+function upload() {
+    fetch("/admin/ingest", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-API-Key": ADMIN_KEY
+        },
+        body: JSON.stringify({
+            text: document.getElementById("docText").value,
+            source_file: document.getElementById("source").value
+        })
+    })
+    .then(r => r.json())
+    .then(d => status(d.status))
+    .catch(() => status("Upload failed"));
+}
+
+function warm() {
+    fetch("/admin/warmup", {
+        method: "POST",
+        headers: {
+            "X-API-Key": ADMIN_KEY
+        }
+    })
+    .then(r => r.json())
+    .then(d => status(d.status))
+    .catch(() => status("Warmup failed"));
+}
+
+function status(msg){
+    document.getElementById("status").innerText = msg;
 }
 </script>
 
