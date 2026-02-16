@@ -5,6 +5,7 @@ from typing import Optional
 from pathlib import Path
 import shutil
 import os
+import threading
 
 from app.core.rate_limiter import limiter
 from app.core.security import get_role_from_request, require_user_or_admin
@@ -117,11 +118,12 @@ def ingest_document(request: Request, file: UploadFile = File(...)):
 
 @router.on_event("startup")
 def auto_warmup():
-    """
-    Lazy load embeddings + LLM so the first user doesn't wait.
-    """
-    try:
-        get_models()
-        print("✅ Models warmed up successfully")
-    except Exception as e:
-        print(f"⚠️ Model warmup failed: {e}")
+    def warmup():
+        try:
+            get_models()
+            print("✅ Models warmed up successfully")
+        except Exception as e:
+            print(f"⚠️ Model warmup failed: {e}")
+
+    threading.Thread(target=warmup).start()
+
