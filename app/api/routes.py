@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -93,48 +93,45 @@ def ask_question_stream(request: Request, payload: QuestionRequest):
 
 
 # ==========================
-# Admin-Only Ingestion
+# Ingestion Endpoint (User + Admin)
 # ==========================
 
-@router.post("/admin/ingest")
-def ingest_document(request: Request, payload: IngestRequest):
+@router.post("/ingest")
+def user_ingest(
+    request: Request,
+    file: UploadFile = File(None),
+    text: str = Form(None),
+    source_file: str = Form(None),
+):
+    """
+    Allows users (non-admin) to upload PDF or paste text.
+    """
+    role = get_role_from_request(request)
+    require_user_or_admin(role)
+
+    if file is None and (text is None or text.strip() == ""):
+        raise HTTPException(status_code=400, detail="No document or text provided")
+
+    if file:
+        from PyPDF2 import PdfReader
+
+        try:
+            reader = PdfReader(file.file)
+            doc_text = "\n\n".join(
+                [page.extract_text() or "" for page in reader.pages]
+            )
+            doc_name = source_file or file.filename
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"PDF processing failed: {e}"
+            )
+    else:
+        doc_text = text
+        doc_name = source_file or "user_text"
+
     from app.core.ingestion import ingest_text
 
-    role = get_role_from_request(request)
-    require_admin(role)
+    ingest_text(text=doc_text, source_file=doc_name)
 
-    ingest_text(
-        text=payload.text,
-        source_file=payload.source_file,
-    )
-
-    return {"status": "Document ingested successfully"}
-
-
-# ==========================
-# Admin Warmup Endpoint
-# ==========================
-
-@router.post("/admin/warmup")
-def warmup_models(request: Request):
-    """
-    Trigger lazy model loading without blocking startup.
-    Useful after deployment to warm up LLM + embeddings.
-    Always returns JSON even if warmup fails.
-    """
-    from app.core.model_manager import get_models
-
-    role = get_role_from_request(request)
-    require_admin(role)
-
-    try:
-        get_models()
-        return {"status": "models warmed"}
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "warmup failed",
-                "detail": str(e),
-            },
-        )
+    return {"status": f"Document ingested successfully: {doc_name}"}
