@@ -58,7 +58,7 @@ separation between ingestion and querying.
 
 ### Run Locally
 
-    git clone https://github.com/yourusername/ai-doc-assistant.git
+    git clone https://github.com/Udeibom/ai-doc-assistant.git
     cd ai-doc-assistant
 
     pip install -r requirements.txt
