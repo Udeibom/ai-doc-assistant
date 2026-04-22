@@ -20,12 +20,12 @@ for real-world enterprise use.
 
 ## Key Features
 
--   📄 End-to-end document ingestion and processing pipeline\
--   🔍 Semantic search using vector embeddings (FAISS / Chroma)\
--   🧠 LLM-based reasoning grounded strictly in retrieved context\
--   📌 Explicit source citation for every response\
--   🚫 Hallucination control with "I don't know" fallback\
--   ⚡ FastAPI-based inference API for real-time interaction\
+-   📄 End-to-end document ingestion and processing pipeline
+-   🔍 Semantic search using vector embeddings (FAISS / Chroma)
+-   🧠 LLM-based reasoning grounded strictly in retrieved context
+-   📌 Explicit source citation for every response
+-   🚫 Hallucination control with "I don't know" fallback
+-   ⚡ FastAPI-based inference API for real-time interaction
 -   🔁 Persistent vector store with retriever reload support
 
 ------------------------------------------------------------------------
@@ -84,31 +84,31 @@ deployed using Render (free tier).
 
 ## Tech Stack
 
--   **Language:** Python\
--   **API:** FastAPI\
--   **ML / RAG:** LlamaIndex\
--   **Vector Store:** FAISS / ChromaDB\
--   **LLM:** OpenAI / Groq (configurable)\
--   **Embeddings:** HuggingFace / OpenAI\
+-   **Language:** Python
+-   **API:** FastAPI
+-   **ML / RAG:** LlamaIndex
+-   **Vector Store:** FAISS / ChromaDB
+-   **LLM:** OpenAI / Groq (configurable)
+-   **Embeddings:** HuggingFace / OpenAI
 -   **Deployment:** Render, Docker (optional)
 
 ------------------------------------------------------------------------
 
 ## Key Engineering Decisions
 
--   Chunk overlap (50--100 tokens) to preserve context continuity\
--   Strict context-only answering to prevent hallucinations\
--   Explicit refusal mechanism for low-confidence queries\
--   Retriever reload after ingestion\
--   Modular pipeline separation (ingestion vs querying)\
+-   Chunk overlap (50--100 tokens) to preserve context continuity
+-   Strict context-only answering to prevent hallucinations
+-   Explicit refusal mechanism for low-confidence queries
+-   Retriever reload after ingestion
+-   Modular pipeline separation (ingestion vs querying)
 -   Confidence scoring using similarity metrics
 
 ------------------------------------------------------------------------
 
 ## Evaluation
 
--   Retrieval relevance (similarity scores)\
--   Answer grounding (citation presence)\
+-   Retrieval relevance (similarity scores)
+-   Answer grounding (citation presence)
 -   Hallucination reduction via strict constraints
 
 Future work includes automated evaluation using LLM-based scoring.
@@ -139,17 +139,17 @@ Future work includes automated evaluation using LLM-based scoring.
 
 ## Design Principles
 
--   Accuracy over creativity\
--   Transparency over convenience\
--   Reliability over novelty\
+-   Accuracy over creativity
+-   Transparency over convenience
+-   Reliability over novelty
 -   Production-oriented system design
 
 ------------------------------------------------------------------------
 
 ## Future Improvements
 
--   Streaming responses\
--   Query rewriting\
--   Role-based access control\
--   Rate limiting\
+-   Streaming responses
+-   Query rewriting
+-   Role-based access control
+-   Rate limiting
 -   Prompt versioning
