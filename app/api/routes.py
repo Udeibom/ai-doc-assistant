@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -84,33 +84,46 @@ UPLOAD_DIR = Path(__file__).resolve().parents[2] / "storage" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.post("/ingest")
-def ingest_document(request: Request, file: UploadFile = File(...)):
+def ingest_document(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
+    source_file: Optional[str] = Form(None),
+):
     """
     Public-friendly PDF/text upload endpoint.
-    Accepts PDF or plain text files.
+    Accepts PDF or plain text files, or pasted text.
     """
     role = get_role_from_request(request)
     require_user_or_admin(role)
 
-    # Save uploaded file
-    file_path = UPLOAD_DIR / file.filename
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    if file is not None and file.filename:
+        # Save uploaded file
+        file_path = UPLOAD_DIR / file.filename
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
 
-    # Extract text from PDF or TXT
-    if file.filename.lower().endswith(".pdf"):
-        from PyPDF2 import PdfReader
-        pdf = PdfReader(str(file_path))
-        text = "\n\n".join([page.extract_text() or "" for page in pdf.pages])
-    elif file.filename.lower().endswith(".txt"):
-        text = file_path.read_text(encoding="utf-8")
+        # Extract text from PDF or TXT
+        if file.filename.lower().endswith(".pdf"):
+            from PyPDF2 import PdfReader
+            pdf = PdfReader(str(file_path))
+            extracted_text = "\n\n".join([page.extract_text() or "" for page in pdf.pages])
+        elif file.filename.lower().endswith(".txt"):
+            extracted_text = file_path.read_text(encoding="utf-8")
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file type")
+
+        filename = file.filename
+    elif text is not None and text.strip():
+        extracted_text = text
+        filename = source_file or "user_text"
     else:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
+        raise HTTPException(status_code=400, detail="No file or text provided")
 
     # Ingest into vector store
-    ingest_text(text=text, source_file=file.filename)
+    ingest_text(text=extracted_text, source_file=filename)
 
-    return {"status": f"File '{file.filename}' ingested successfully."}
+    return {"status": f"Document '{filename}' ingested successfully."}
 
 # ==========================
 # Auto Warmup on Startup

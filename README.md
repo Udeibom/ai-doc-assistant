@@ -62,7 +62,7 @@ separation between ingestion and querying.
     cd ai-doc-assistant
 
     pip install -r requirements.txt
-    uvicorn app.api:app --reload
+    uvicorn app.main:app --reload
 
 ### Example API Request
 
@@ -133,7 +133,7 @@ Future work includes automated evaluation using LLM-based scoring.
 
 ## Environment Variables
 
-    OPENAI_API_KEY=your_api_key
+    GROQ_API_KEY=your_api_key
 
 ------------------------------------------------------------------------
 

@@ -4,7 +4,7 @@ from typing import List
 from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import VectorIndexRetriever
-from llama_index.llms.openai import OpenAI
+from llama_index.llms.groq import Groq
 
 
 logger = logging.getLogger(__name__)
@@ -30,8 +30,8 @@ def load_query_engine(top_k: int = 5):
         similarity_top_k=top_k,
     )
 
-    llm = OpenAI(
-        model="gpt-4o-mini",
+    llm = Groq(
+        model="llama-3.1-8b-instant",
         temperature=0.0
     )
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from llama_index.core import VectorStoreIndex, StorageContext
+from llama_index.core import VectorStoreIndex, StorageContext, load_index_from_storage
 from llama_index.core.schema import Document
 from llama_index.core.settings import Settings
 
@@ -21,13 +21,17 @@ def ingest_text(text: str, source_file: str):
         persist_dir=VECTOR_STORE_DIR
     )
 
-    index = VectorStoreIndex.from_documents(
-        [document],
-        storage_context=storage_context,
-        embed_model=Settings.embed_model
-    )
+    try:
+        index = load_index_from_storage(storage_context)
+        index.insert(document)
+    except Exception:
+        index = VectorStoreIndex.from_documents(
+            [document],
+            storage_context=storage_context,
+            embed_model=Settings.embed_model
+        )
 
-    index.storage_context.persist()
+    index.storage_context.persist(persist_dir=VECTOR_STORE_DIR)
 
     # Reload retriever so new docs are live
     reload_retriever()

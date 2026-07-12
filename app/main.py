@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
@@ -285,11 +288,30 @@ function ask() {
                 }
 
                 const chunk = decoder.decode(value);
-                const lines = chunk.split("\\n\\n");
+                const blocks = chunk.split("\\n\\n");
 
-                lines.forEach(line => {
-                    if (line.startsWith("data: ")) {
-                        aiBubble.textContent += line.replace("data: ", "");
+                blocks.forEach(block => {
+                    if (!block.trim()) return;
+                    
+                    const lines = block.split("\\n");
+                    let event = null;
+                    let data = null;
+                    
+                    lines.forEach(line => {
+                        if (line.startsWith("event: ")) {
+                            event = line.replace("event: ", "").trim();
+                        } else if (line.startsWith("data: ")) {
+                            data = line.replace("data: ", "").trim();
+                        }
+                    });
+                    
+                    if (event === "metadata") {
+                        aiBubble.textContent += "\\n\\n" + data;
+                        aiBubble.innerHTML = aiBubble.textContent + '<span class="cursor">▍</span>';
+                    } else if (event === "end" || data === "[DONE]") {
+                        // End of stream
+                    } else if (data) {
+                        aiBubble.textContent += data;
                         aiBubble.innerHTML = aiBubble.textContent + '<span class="cursor">▍</span>';
                     }
                 });
